@@ -7,9 +7,7 @@
 
 namespace zhuravljov\yii\queue\monitor\controllers;
 
-use Yii;
 use yii\filters\VerbFilter;
-use yii\queue\Job;
 use yii\web\Controller;
 use yii\web\ForbiddenHttpException;
 use yii\web\NotFoundHttpException;
@@ -49,38 +47,37 @@ class JobController extends Controller
     }
 
     /**
-     * Statistics
-     */
-    public function actionStats()
-    {
-        $filter = $this->createFilter();
-        return $this->render('stats', [
-            'filter' => $filter,
-            'classes' => $filter->searchClasses(),
-            'senders' => $filter->searchSenders(),
-        ]);
-    }
-
-    /**
      * Pushed jobs
+     *
+     * @return mixed
      */
-    public function actionList()
+    public function actionIndex()
     {
-        return $this->render('list', [
-            'filter' => $this->createFilter(),
+        return $this->render('index', [
+            'filter' => JobFilter::ensure(),
         ]);
     }
 
     /**
      * Job view
+     *
+     * @param int $id
+     * @return mixed
      */
     public function actionView($id)
     {
-        return $this->redirect(['view-details', 'id' => $id]);
+        $record = $this->findRecord($id);
+        if ($record->lastExec && $record->lastExec->isFailed()) {
+            return $this->redirect(['view-attempts', 'id' => $record->id]);
+        }
+        return $this->redirect(['view-details', 'id' => $record->id]);
     }
 
     /**
      * Push details
+     *
+     * @param int $id
+     * @return mixed
      */
     public function actionViewDetails($id)
     {
@@ -90,7 +87,23 @@ class JobController extends Controller
     }
 
     /**
+     * Push environment
+     *
+     * @param int $id
+     * @return mixed
+     */
+    public function actionViewEnv($id)
+    {
+        return $this->render('view-env', [
+            'record' => $this->findRecord($id),
+        ]);
+    }
+
+    /**
      * Job object data
+     *
+     * @param int $id
+     * @return mixed
      */
     public function actionViewData($id)
     {
@@ -101,6 +114,9 @@ class JobController extends Controller
 
     /**
      * Attempts
+     *
+     * @param int $id
+     * @return mixed
      */
     public function actionViewAttempts($id)
     {
@@ -111,6 +127,10 @@ class JobController extends Controller
 
     /**
      * Pushes a job again
+     *
+     * @param int $id
+     * @throws
+     * @return mixed
      */
     public function actionPush($id)
     {
@@ -128,11 +148,11 @@ class JobController extends Controller
 
         if (!$record->isJobValid()) {
             return $this
-                ->error('The job isn\'t pushed because object must be ' . Job::class . '.')
+                ->error('The job isn\'t pushed because it must be JobInterface instance.')
                 ->redirect(['view-data', 'id' => $record->id]);
         }
 
-        $uid = $record->getSender()->push($record->getJob());
+        $uid = $record->getSender()->push($record->createJob());
         $newRecord = PushRecord::find()->byJob($record->sender_name, $uid)->one();
 
         return $this
@@ -142,10 +162,14 @@ class JobController extends Controller
 
     /**
      * Stop a job
+     *
+     * @param int $id
+     * @throws
+     * @return mixed
      */
     public function actionStop($id)
     {
-        if (!$this->module->canPushAgain) {
+        if (!$this->module->canExecStop) {
             throw new ForbiddenHttpException('Stop is forbidden.');
         }
 
@@ -165,34 +189,21 @@ class JobController extends Controller
 
         $record->stop();
 
-        return $this->success( 'The job will be stopped.')
+        return $this
+            ->success('The job will be stopped.')
             ->redirect(['view-details', 'id' => $record->id]);
     }
 
     /**
      * @param int $id
-     * @return PushRecord
      * @throws NotFoundHttpException
+     * @return PushRecord
      */
     protected function findRecord($id)
     {
         if ($record = PushRecord::find()->byId($id)->one()) {
             return $record;
-        } else {
-            throw new NotFoundHttpException('Record not found.');
         }
-    }
-
-    /**
-     * @return JobFilter
-     */
-    protected function createFilter()
-    {
-        /** @var JobFilter $filter */
-        $filter = Yii::createObject(JobFilter::class);
-        $filter->load(Yii::$app->request->queryParams) && $filter->validate();
-        $filter->storeParams();
-
-        return $filter;
+        throw new NotFoundHttpException('Record not found.');
     }
 }

@@ -13,7 +13,9 @@ use yii\web\Application as WebApplication;
 use yii\web\GroupUrlRule;
 
 /**
- * Class Config
+ * Web Module
+ *
+ * @property \yii\i18n\Formatter $formatter
  *
  * @author Roman Zhuravlev <zhuravljov@gmail.com>
  */
@@ -22,11 +24,15 @@ class Module extends \yii\base\Module implements BootstrapInterface
     /**
      * @var bool
      */
-    public $canPushAgain = true;
+    public $canPushAgain = false;
     /**
      * @var bool
      */
-    public $canStop = true;
+    public $canExecStop = false;
+    /**
+     * @var bool
+     */
+    public $canWorkerStop = false;
     /**
      * @inheritdoc
      */
@@ -38,7 +44,7 @@ class Module extends \yii\base\Module implements BootstrapInterface
     /**
      * @inheritdoc
      */
-    public $defaultRoute = 'job/stats';
+    public $defaultRoute = 'stat/index';
 
     /**
      * @inheritdoc
@@ -50,9 +56,10 @@ class Module extends \yii\base\Module implements BootstrapInterface
                 'class' => GroupUrlRule::class,
                 'prefix' => $this->id,
                 'rules' => [
-                    'stats' => 'job/stats',
-                    'jobs' => 'job/list',
+                    'stats' => 'stat/index',
+                    'jobs' => 'job/index',
                     'job/<id:\d+>/<action\w+>' => 'job/view-<action>',
+                    'workers' => 'worker/index',
                     '<controller:\w+>/<id:\d+>' => '<controller>/view',
                     '<controller:\w+>/<action\w+>/<id:\d+>' => '<controller>/<action>',
                     '<controller:\w+>/<action\w+>' => '<controller>/<action>',

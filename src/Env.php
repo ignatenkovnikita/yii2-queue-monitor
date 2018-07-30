@@ -7,7 +7,7 @@
 
 namespace zhuravljov\yii\queue\monitor;
 
-use yii\base\Object;
+use yii\base\BaseObject;
 use yii\caching\Cache;
 use yii\db\Connection;
 use yii\di\Instance;
@@ -17,7 +17,7 @@ use yii\di\Instance;
  *
  * @author Roman Zhuravlev <zhuravljov@gmail.com>
  */
-class Env extends Object
+class Env extends BaseObject
 {
     /**
      * @var Cache|array|string
@@ -35,6 +35,14 @@ class Env extends Object
      * @var string
      */
     public $execTableName = '{{%queue_exec}}';
+    /**
+     * @var string
+     */
+    public $workerTableName = '{{%queue_worker}}';
+    /**
+     * @var int
+     */
+    public $workerPingInterval = 15;
 
     /**
      * @inheritdoc
@@ -46,4 +54,11 @@ class Env extends Object
         $this->db = Instance::ensure($this->db, Connection::class);
     }
 
+    /**
+     * @return bool
+     */
+    public function canListenWorkerLoop()
+    {
+        return !!$this->workerPingInterval;
+    }
 }

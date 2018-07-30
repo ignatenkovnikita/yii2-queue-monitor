@@ -7,27 +7,39 @@
 use yii\bootstrap\Html;
 use yii\bootstrap\Nav;
 use zhuravljov\yii\queue\monitor\filters\JobFilter;
+use zhuravljov\yii\queue\monitor\Module;
 
 $this->params['breadcrumbs'][] = [
     'label' => 'Jobs',
-    'url' => ['list'],
+    'url' => ['index'],
 ];
 if ($filtered = JobFilter::restoreParams()) {
     $this->params['breadcrumbs'][] = [
         'label' => 'Filtered',
-        'url' => ['list'] + $filtered,
+        'url' => ['index'] + $filtered,
+    ];
+}
+$parents = [];
+$parent = $record->parent;
+while ($parent) {
+    $parents[] = $parent;
+    $parent = $parent->parent;
+}
+foreach (array_reverse($parents) as $parent) {
+    $this->params['breadcrumbs'][]  = [
+        'label' => "#$parent->job_uid",
+        'url' => [Yii::$app->requestedAction->id, 'id' => $parent->id],
     ];
 }
 $this->params['breadcrumbs'][]  = [
-    'label' => 'Job ' . $record->job_uid . ' by ' . $record->sender_name,
-    'url' => ['view', 'id' => $record->id],
+    'label' => "#$record->job_uid",
+    'url' => [Yii::$app->requestedAction->id, 'id' => $record->id],
 ];
 
-/** @var \zhuravljov\yii\queue\monitor\Module $module */
-$module = Yii::$app->controller->module;
+$module = Module::getInstance();
 ?>
 <div class="pull-right">
-    <?= !$module->canStop ? '' : Html::a(
+    <?= !$module->canExecStop ? '' : Html::a(
         Html::icon('stop') . ' Stop',
         ['stop', 'id' => $record->id],
         [
@@ -60,6 +72,10 @@ $module = Yii::$app->controller->module;
         [
             'label' => 'Details',
             'url' => ['job/view-details', 'id' => $record->id],
+        ],
+        [
+            'label' => 'Environment',
+            'url' => ['job/view-env', 'id' => $record->id],
         ],
         [
             'label' => 'Data',

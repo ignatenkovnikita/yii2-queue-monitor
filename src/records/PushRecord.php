@@ -9,37 +9,44 @@ namespace zhuravljov\yii\queue\monitor\records;
 
 use Yii;
 use yii\db\ActiveRecord;
-use yii\queue\Job;
+use yii\helpers\Json;
+use yii\queue\JobInterface;
 use yii\queue\Queue;
 use zhuravljov\yii\queue\monitor\Env;
 
 /**
  * Class PushRecord
  *
- * @property integer $id
+ * @property int $id
+ * @property null|int $parent_id
  * @property string $sender_name
  * @property string $job_uid
  * @property string $job_class
- * @property string|resource $job_object
- * @property integer $ttr
- * @property integer $delay
- * @property integer $pushed_at
- * @property integer $stopped_at
- * @property integer $first_exec_id
- * @property integer $last_exec_id
+ * @property string|resource $job_data
+ * @property int $push_ttr
+ * @property int $push_delay
+ * @property string|null $push_trace_data
+ * @property string|null $push_env_data
+ * @property int $pushed_at
+ * @property int|null $stopped_at
+ * @property int|null $first_exec_id
+ * @property int|null $last_exec_id
  *
+ * @property PushRecord $parent
+ * @property PushRecord[] $children
  * @property ExecRecord[] $execs
  * @property ExecRecord|null $firstExec
  * @property ExecRecord|null $lastExec
- * @property array $execCount
+ * @property array $execTotal
  *
  * @property int $attemptCount
  * @property int $waitTime
  * @property string $status
  *
  * @property Queue|null $sender
- * @property Job $job
  * @property array $jobParams
+ * @property string[] $pushTrace
+ * @property array $pushEnv
  *
  * @author Roman Zhuravlev <zhuravljov@gmail.com>
  */
@@ -53,15 +60,13 @@ class PushRecord extends ActiveRecord
     const STATUS_RESTARTED = 'restarted';
     const STATUS_BURIED = 'buried';
 
-    private $_job;
-
     /**
      * @inheritdoc
      * @return PushQuery the active query used by this AR class.
      */
     public static function find()
     {
-        return new PushQuery(get_called_class());
+        return Yii::createObject(PushQuery::class, [get_called_class()]);
     }
 
     /**
@@ -78,6 +83,22 @@ class PushRecord extends ActiveRecord
     public static function tableName()
     {
         return Yii::$container->get(Env::class)->pushTableName;
+    }
+
+    /**
+     * @return PushQuery
+     */
+    public function getParent()
+    {
+        return $this->hasOne(static::class, ['id' => 'parent_id']);
+    }
+
+    /**
+     * @return PushQuery
+     */
+    public function getChildren()
+    {
+        return $this->hasMany(static::class, ['parent_id' => 'id']);
     }
 
     /**
@@ -107,10 +128,14 @@ class PushRecord extends ActiveRecord
     /**
      * @return ExecQuery
      */
-    public function getExecCount()
+    public function getExecTotal()
     {
         return $this->hasOne(ExecRecord::class, ['push_id' => 'id'])
-            ->select(['push_id', 'attempts' => 'COUNT(*)', 'errors' => 'COUNT(error)'])
+            ->select([
+                'push_id',
+                'attempts' => 'COUNT(*)',
+                'errors' => 'COUNT(error)',
+            ])
             ->groupBy('push_id')
             ->asArray();
     }
@@ -120,7 +145,7 @@ class PushRecord extends ActiveRecord
      */
     public function getAttemptCount()
     {
-        return $this->execCount['attempts'] ?: 0;
+        return $this->execTotal['attempts'] ?: 0;
     }
 
     /**
@@ -129,10 +154,9 @@ class PushRecord extends ActiveRecord
     public function getWaitTime()
     {
         if ($this->firstExec) {
-            return $this->firstExec->reserved_at - $this->pushed_at - $this->delay;
-        } else {
-            return time() - $this->pushed_at - $this->delay;
+            return $this->firstExec->reserved_at - $this->pushed_at - $this->push_delay;
         }
+        return time() - $this->pushed_at - $this->push_delay;
     }
 
     /**
@@ -146,19 +170,19 @@ class PushRecord extends ActiveRecord
         if (!$this->lastExec) {
             return self::STATUS_WAITING;
         }
-        if (!$this->lastExec->done_at && $this->lastExec->attempt == 1) {
+        if (!$this->lastExec->isDone() && $this->lastExec->attempt == 1) {
             return self::STATUS_STARTED;
         }
-        if ($this->lastExec->done_at && $this->lastExec->error === null) {
+        if ($this->lastExec->isDone() && !$this->lastExec->isFailed()) {
             return self::STATUS_DONE;
         }
-        if ($this->lastExec->done_at && $this->lastExec->retry) {
+        if ($this->lastExec->isDone() && $this->lastExec->retry) {
             return self::STATUS_FAILED;
         }
-        if (!$this->lastExec->done_at) {
+        if (!$this->lastExec->isDone()) {
             return self::STATUS_RESTARTED;
         }
-        if ($this->lastExec->done_at && !$this->lastExec->retry) {
+        if ($this->lastExec->isDone() && !$this->lastExec->retry) {
             return self::STATUS_BURIED;
         }
         return null;
@@ -181,36 +205,16 @@ class PushRecord extends ActiveRecord
     }
 
     /**
-     * @return Job|mixed
-     */
-    public function getJob()
-    {
-        if ($this->_job === null) {
-            // pgsql
-            if (is_resource($this->job_object)) {
-                $this->job_object = stream_get_contents($this->job_object);
-            }
-            $this->_job = unserialize($this->job_object);
-        }
-        return $this->_job;
-    }
-
-    /**
-     * @param Job|mixed
+     * @param JobInterface|mixed $job
      */
     public function setJob($job)
     {
         $this->job_class = get_class($job);
-        $this->job_object = serialize($job);
-        $this->_job = null;
-    }
-
-    /**
-     * @return bool
-     */
-    public function isJobValid()
-    {
-        return (gettype($this->getJob()) !== 'object') || ($this->getJob() instanceof Job);
+        $data = [];
+        foreach (get_object_vars($job) as $name => $value) {
+            $data[$name] = $this->serializeData($value);
+        }
+        $this->job_data = Json::encode($data);
     }
 
     /**
@@ -218,7 +222,69 @@ class PushRecord extends ActiveRecord
      */
     public function getJobParams()
     {
-        return get_object_vars($this->getJob());
+        if (is_resource($this->job_data)) {
+            $this->job_data = stream_get_contents($this->job_data);
+        }
+        $params = [];
+        foreach (Json::decode($this->job_data) as $name => $value) {
+            $params[$name] = $this->unserializeData($value);
+        }
+        return $params;
+    }
+
+    /**
+     * @return bool
+     */
+    public function isJobValid()
+    {
+        return is_subclass_of($this->job_class, JobInterface::class);
+    }
+
+    /**
+     * @return JobInterface|mixed
+     */
+    public function createJob()
+    {
+        return Yii::createObject(['class' => $this->job_class] + $this->getJobParams());
+    }
+
+    /**
+     * @return string[] trace lines since Queue::push()
+     */
+    public function getPushTrace()
+    {
+        if ($this->push_trace_data === null) {
+            return [];
+        }
+        if (is_resource($this->push_trace_data)) {
+            $this->push_trace_data = stream_get_contents($this->push_trace_data);
+        }
+        $lines = [];
+        $isFirstFound = false;
+        foreach (explode("\n", $this->push_trace_data) as $line) {
+            if (!$isFirstFound && strpos($line, \yii\queue\Queue::class)) {
+                $isFirstFound = true;
+            }
+            if ($isFirstFound) {
+                list(, $line) = explode(' ', trim($line), 2);
+                $lines[] = trim($line);
+            }
+        }
+        return $lines;
+    }
+
+    /**
+     * @return array
+     */
+    public function getPushEnv()
+    {
+        if ($this->push_env_data === null) {
+            return [];
+        }
+        if (is_resource($this->push_env_data)) {
+            $this->push_env_data = stream_get_contents($this->push_env_data);
+        }
+        return unserialize($this->push_env_data);
     }
 
     /**
@@ -245,7 +311,7 @@ class PushRecord extends ActiveRecord
         if ($this->isStopped()) {
             return false;
         }
-        if ($this->lastExec && $this->lastExec->done_at && !$this->lastExec->retry) {
+        if ($this->lastExec && $this->lastExec->isDone() && !$this->lastExec->retry) {
             return false;
         }
         return true;
@@ -258,5 +324,55 @@ class PushRecord extends ActiveRecord
     {
         $this->stopped_at = time();
         $this->save(false);
+    }
+
+    /**
+     * @param mixed $data
+     * @return mixed
+     */
+    private function serializeData($data)
+    {
+        if (is_object($data)) {
+            $result = ['=class=' => get_class($data)];
+            foreach (get_object_vars($data) as $name => $value) {
+                $result[$name] = $this->serializeData($value);
+            }
+            return $result;
+        }
+
+        if (is_array($data)) {
+            $result = [];
+            foreach ($data as $name => $value) {
+                $result[$name] = $this->serializeData($value);
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * @param mixed $data
+     * @return mixed
+     */
+    private function unserializeData($data)
+    {
+        if (!is_array($data)) {
+            return $data;
+        }
+
+        if (!isset($data['=class='])) {
+            $result = [];
+            foreach ($data as $key => $value) {
+                $result[$key] = $this->unserializeData($value);
+            }
+            return $result;
+        }
+
+        $config = ['class' => $data['=class=']];
+        unset($data['=class=']);
+        foreach ($data as $property => $value) {
+            $config[$property] = $this->unserializeData($value);
+        }
+        return Yii::createObject($config);
     }
 }

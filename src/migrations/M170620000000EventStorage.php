@@ -7,22 +7,21 @@
 
 namespace zhuravljov\yii\queue\monitor\migrations;
 
-use yii\db\Migration;
+use zhuravljov\yii\queue\monitor\base\Migration;
 
 /**
- * Class M20170620000000QueueEvent
+ * Storage of job events
  *
  * @author Roman Zhuravlev <zhuravljov@gmail.com>
  */
 class M170620000000EventStorage extends Migration
 {
-    public $pushTableName = '{{%queue_push}}';
-    public $execTableName = '{{%queue_exec}}';
-    public $tableOptions;
-
-    public function up()
+    /**
+     * @inheritdoc
+     */
+    public function safeUp()
     {
-        $this->createTable($this->pushTableName, [
+        $this->createTable($this->env->pushTableName, [
             'id' => $this->primaryKey(),
             'sender_name' => $this->string(32)->notNull(),
             'job_uid' => $this->string(32)->notNull(),
@@ -34,12 +33,12 @@ class M170620000000EventStorage extends Migration
             'stopped_at' => $this->integer(),
             'first_exec_id' => $this->integer(),
             'last_exec_id' => $this->integer(),
-        ], $this->tableOptions);
-        $this->createIndex('job_uid', $this->pushTableName, ['sender_name', 'job_uid']);
-        $this->createIndex('first_exec_id', $this->pushTableName, 'first_exec_id');
-        $this->createIndex('last_exec_id', $this->pushTableName, 'last_exec_id');
+        ]);
+        $this->createIndex('job_uid', $this->env->pushTableName, ['sender_name', 'job_uid']);
+        $this->createIndex('first_exec_id', $this->env->pushTableName, 'first_exec_id');
+        $this->createIndex('last_exec_id', $this->env->pushTableName, 'last_exec_id');
 
-        $this->createTable($this->execTableName, [
+        $this->createTable($this->env->execTableName, [
             'id' => $this->primaryKey(),
             'push_id' => $this->integer()->notNull(),
             'attempt' => $this->integer()->notNull(),
@@ -47,13 +46,16 @@ class M170620000000EventStorage extends Migration
             'done_at' => $this->integer(),
             'error' => $this->text(),
             'retry' => $this->boolean(),
-        ], $this->tableOptions);
-        $this->createIndex('push_id', $this->execTableName, 'push_id');
+        ]);
+        $this->createIndex('push_id', $this->env->execTableName, 'push_id');
     }
 
-    public function down()
+    /**
+     * @inheritdoc
+     */
+    public function safeDown()
     {
-        $this->dropTable($this->execTableName);
-        $this->dropTable($this->pushTableName);
+        $this->dropTable($this->env->execTableName);
+        $this->dropTable($this->env->pushTableName);
     }
 }

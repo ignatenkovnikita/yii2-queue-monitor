@@ -14,15 +14,18 @@ use zhuravljov\yii\queue\monitor\Env;
 /**
  * Class ExecRecord
  *
- * @property integer $id
- * @property integer $push_id
- * @property integer $attempt
- * @property integer $reserved_at
- * @property null|integer $done_at
+ * @property int $id
+ * @property int $push_id
+ * @property null|int $worker_id
+ * @property int $attempt
+ * @property int $reserved_at
+ * @property null|int $done_at
+ * @property null|int $memory_usage
  * @property null|string $error
- * @property null|integer $retry
+ * @property null|bool $retry
  *
  * @property PushRecord $push
+ * @property null|WorkerRecord $worker
  *
  * @property int $duration
  * @property false|string $errorMessage
@@ -31,13 +34,15 @@ use zhuravljov\yii\queue\monitor\Env;
  */
 class ExecRecord extends ActiveRecord
 {
+    private $_errorMessage;
+
     /**
      * @inheritdoc
      * @return ExecQuery the active query used by this AR class.
      */
     public static function find()
     {
-        return new ExecQuery(get_called_class());
+        return Yii::createObject(ExecQuery::class, [get_called_class()]);
     }
 
     /**
@@ -65,15 +70,38 @@ class ExecRecord extends ActiveRecord
     }
 
     /**
+     * @return WorkerQuery
+     */
+    public function getWorker()
+    {
+        return $this->hasOne(WorkerRecord::class, ['id' => 'worker_id']);
+    }
+
+    /**
      * @return int
      */
     public function getDuration()
     {
         if ($this->done_at) {
             return $this->done_at - $this->reserved_at;
-        } else {
-            return time() - $this->reserved_at;
         }
+        return time() - $this->reserved_at;
+    }
+
+    /**
+     * @return bool
+     */
+    public function isDone()
+    {
+        return $this->done_at !== null;
+    }
+
+    /**
+     * @return bool
+     */
+    public function isFailed()
+    {
+        return $this->error !== null;
     }
 
     /**
@@ -89,6 +117,4 @@ class ExecRecord extends ActiveRecord
         }
         return $this->_errorMessage;
     }
-
-    private $_errorMessage;
 }
